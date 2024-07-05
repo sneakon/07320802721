@@ -1,0 +1,61 @@
+pip install fastapi uvicorn requests
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import requests
+from typing import List
+import time
+
+app = FastAPI()
+
+WINDOW_SIZE = 10
+numbers_window = []
+
+class NumberResponse(BaseModel):
+    new_numbers: List[int]
+    previous_window: List[int]
+    current_window: List[int]
+    average: float
+
+def fetch_numbers_from_test_server(number_type: str) -> List[int]:
+    try:
+        response = requests.get(f"http://test-server.com/{number_type}", timeout=0.5)
+        response.raise_for_status()
+        numbers = response.json()  # assuming the server responds with a JSON list of numbers
+        return numbers
+    except (requests.RequestException, ValueError):
+        return []
+
+def update_window_with_new_numbers(new_numbers: List[int]):
+    global numbers_window
+    unique_numbers = [num for num in new_numbers if num not in numbers_window]
+    numbers_window.extend(unique_numbers)
+    while len(numbers_window) > WINDOW_SIZE:
+        numbers_window.pop(0)
+
+def calculate_average(numbers: List[int]) -> float:
+    if not numbers:
+        return 0.0
+    return sum(numbers) / len(numbers)
+
+@app.get("/numbers/{numberid}", response_model=NumberResponse)
+def get_numbers(numberid: str):
+    if numberid not in ['p', 'f', 'e', 'r']:
+        raise HTTPException(status_code=400, detail="Invalid number ID. Valid IDs are 'p', 'f', 'e', 'r'.")
+
+    previous_window = numbers_window.copy()
+    
+    start_time = time.time()
+    new_numbers = fetch_numbers_from_test_server(numberid)
+    if time.time() - start_time > 0.5:
+        new_numbers = []
+
+    update_window_with_new_numbers(new_numbers)
+    current_window = numbers_window.copy()
+    average = calculate_average(current_window)
+
+    return NumberResponse(
+        new_numbers=new_numbers,
+        previous_window=previous_window,
+        current_window=current_window,
+        average=average
+    )
